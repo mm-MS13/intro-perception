@@ -18,7 +18,7 @@ GRAY = (128, 128, 128)
 POST_WIDTH = 13
 TOP, MIDDLE, BOTTOM = 35, 93, 151  # post spans rows [TOP, BOTTOM); halves split at MIDDLE
 LEFT_X, RIGHT_X = 80, 225
- 
+
  
 def draw_post(frame, x, top_color, bottom_color):
     cv.rectangle(frame, (x, TOP), (x + POST_WIDTH - 1, MIDDLE - 1), top_color, -1)
