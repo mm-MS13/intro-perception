@@ -26,13 +26,17 @@ class ClassicalGatePerceiver(TaskPerceiver):
     """Find two vertical posts with fixed HSV thresholds."""
 
     # ADDED: Default Slider Values
-    def __init__(self):
+    def __init__(self):   
         super().__init__(
-            red_h_min=((0, 180), 0),
-            red_h_max=((0, 180), 10),
-            red_s_min=((0, 255), 100),
-            red_v_min=((0, 255), 100),
-            black_v_max=((0, 255), 50),
+            red_h_min=((0, 180), 105),
+            red_h_max=((0, 180), 180),
+            red_s_min=((0, 255), 20),
+            red_v_min=((0, 255), 45),
+            red_v_max=((0, 255), 165),
+            black_h_min=((0, 180), 95),
+            black_h_max=((0, 180), 120),
+            black_s_min=((0, 255), 60),
+            black_v_max=((0, 255), 100),
         )
 
     def analyze(self, frame: np.ndarray, debug: bool, slider_vals=None):
@@ -43,32 +47,52 @@ class ClassicalGatePerceiver(TaskPerceiver):
             slider_vals = {}
 
         # Slider controls for HSV tuning
-        r_h_min = slider_vals.get("red_h_min", 0)
-        r_h_max = slider_vals.get("red_h_max", 10)
-        r_s_min = slider_vals.get("red_s_min", 100)
-        r_v_min = slider_vals.get("red_v_min", 100)
-        
-        b_v_max = slider_vals.get("black_v_max", 50)
+        r_h_min = slider_vals.get("red_h_min", 105)
+        r_h_max = slider_vals.get("red_h_max", 180)
+        r_s_min = slider_vals.get("red_s_min", 20)
+        r_v_min = slider_vals.get("red_v_min", 45)
+        r_v_max = slider_vals.get("red_v_max", 165)
+
+        b_h_min = slider_vals.get("black_h_min", 95)
+        b_h_max = slider_vals.get("black_h_max", 120)
+        b_s_min = slider_vals.get("black_s_min", 60)
+        b_v_max = slider_vals.get("black_v_max", 100)
 
         hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
         
         red_mask = cv.inRange(
             hsv, 
             np.array((r_h_min, r_s_min, r_v_min)), 
-            np.array((r_h_max, 255, 255))
+            np.array((r_h_max, 255, r_v_max))
         )
         
         # Broad black mask
         black_mask = cv.inRange(
             hsv, 
-            np.array((0, 0, 0)), 
-            np.array((180, 255, b_v_max))
+            np.array((b_h_min, b_s_min, 25)), 
+            np.array((b_h_max, 255, b_v_max))
         )
 
-        combined_mask = cv.bitwise_or(red_mask, black_mask)
-        combined_mask = cv.morphologyEx(combined_mask, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        
-        contours = cv.findContours(combined_mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[-2]
+        '''old - bitwise''' #combined_mask = cv.bitwise_or(red_mask, black_mask)
+        #bitwise_or takes two masks and makes one that is white wherever either was white. 
+        # After that line, the code can’t tell which blobs were red and which were black. 
+        #We want that the posts are told apart by the red/black, so we need the two masks kept separate.
+
+        '''old''' #combined_mask = cv.morphologyEx(combined_mask, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+        #Open Erodes then dilates, meaning it first shirnks the white noise (a pixel only stays white if the kernel underneath is white)
+            # only the big blobs move forwards and specs get removed
+            # Net Effect: removes small white noise and leaves real blobs alone.
+        # Close dilates first then erodes, meaning the dilate fills the gaps and joins nearby pieces (a pixel becomes white if hte kenerl underneath is white),
+            # erode then shrinks the outline
+            # Net Effect: fills small black holes and bridges small gaps inside or between white shapes.  
+        red_mask = cv.morphologyEx(red_mask, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        red_mask = cv.morphologyEx(red_mask, cv.MORPH_CLOSE, np.ones((15, 3), np.uint8))
+        black_mask = cv.morphologyEx(black_mask, cv.MORPH_CLOSE, np.ones((15, 3), np.uint8))
+
+        # Problem: Stray specks of white noise	Fix: open
+        # Problem: One post broken into dotted pieces	Fix: close
+        contours = cv.findContours(red_mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)[-2]
 
         candidates = []
         for contour in contours:
@@ -116,8 +140,14 @@ class ClassicalGatePerceiver(TaskPerceiver):
         annotated = annotate(frame, estimate)
         for x, y, width, height, _ in selected:
             cv.rectangle(annotated, (x, y), (x + width, y + height), (0, 255, 0), 2)
-            
-        return estimate, [annotated, cv.cvtColor(combined_mask, cv.COLOR_GRAY2BGR)]
+        
+        return estimate, [
+            annotated,
+            cv.cvtColor(red_mask, cv.COLOR_GRAY2BGR),
+            cv.cvtColor(black_mask, cv.COLOR_GRAY2BGR),
+        ]
+    
+    #    return estimate, [annotated, cv.cvtColor(combined_mask, cv.COLOR_GRAY2BGR)]
 
 def annotate(frame, estimate, label_prefix="classical"):
     canvas = frame.copy()
@@ -135,3 +165,4 @@ def annotate(frame, estimate, label_prefix="classical"):
         cv.putText(canvas, f"{label_prefix}: no gate", (10, 26),
                    cv.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv.LINE_AA)
     return canvas
+
